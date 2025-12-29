@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  nonebot:
+    image: ghcr.io/misaka10843/murasame-bot:latest
+    container_name: discord_bot
+    restart: always
+    ports:
+      - "8989:8989"
+    environment:
+      # NoneBot 基础配置
+      - DRIVER=~fastapi+~httpx+~websockets
+      # 反向ws配置
+      - HOST=0.0.0.0
+      - PORT=8989
+
+      - COMMAND_START=["/"]
+
+      # OneBot 鉴权 (必须与 NapCat 配置一致)
+      - ONEBOT_ACCESS_TOKEN=你的Token
+
+      # 插件业务配置
+      - DISCORD_TOKEN=你的DiscordToken
+      - DISCORD_GUILD_ID=discord频道id
+      - QQ_GROUP_ID=qq群id
+    extra_hosts:
+      # 允许容器访问宿主机网络 (Linux下有时需要)
+      - "host.docker.internal:host-gateway"
