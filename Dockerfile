@@ -10,7 +10,9 @@ RUN apt-get update && apt-get install -y gcc && rm -rf /var/lib/apt/lists/*
 COPY pyproject.toml README.md ./
 
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir .
+    pip install --no-cache-dir . && \
+    pip install --no-cache-dir pipx && \
+    pipx install --no-cache-dir nb-cli
 
 COPY src ./src
 
