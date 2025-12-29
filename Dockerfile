@@ -13,9 +13,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir .
 
 COPY src ./src
-
-RUN useradd -m appuser
-USER appuser
+COPY bot.py ./
 
 EXPOSE 8989
 
