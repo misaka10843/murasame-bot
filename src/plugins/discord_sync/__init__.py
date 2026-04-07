@@ -105,12 +105,12 @@ class DiscordMonitor(discord.Client):
                     return
                 else:
                     # 如果回到了不同频道 -> 视为“切换”
-                    msg_content = f"{name} 🔄 切换频道: {old_channel} -> {after.channel.name}"
+                    msg_content = f"[Discord] {name} 🔄 切换频道: {old_channel} -> {after.channel.name}"
                     logger.info(f"[Discord Sync] {msg_content} (快速重连异频道)")
                     await try_active_push(msg_content)
                     return
 
-            msg_content = f"{name} 🟢 进入了语音频道: {after.channel.name}"
+            msg_content = f"[Discord] {name} 🟢 进入了语音频道: {after.channel.name}"
             logger.info(f"[Discord Sync] {msg_content}")
             await try_active_push(msg_content)
             return
@@ -121,7 +121,7 @@ class DiscordMonitor(discord.Client):
             if user_id in pending_leave_tasks:
                 pending_leave_tasks.pop(user_id)["task"].cancel()
 
-            msg_content = f"{name} 🔄 切换频道: {before.channel.name} -> {after.channel.name}"
+            msg_content = f"[Discord] {name} 🔄 切换频道: {before.channel.name} -> {after.channel.name}"
             logger.info(f"[Discord Sync] {msg_content}")
             await try_active_push(msg_content)
 
@@ -131,7 +131,7 @@ class DiscordMonitor(discord.Client):
             await asyncio.sleep(LEAVE_DELAY_SECONDS)
 
             # 时间到了，任务没被取消，说明用户真的走了
-            msg_content = f"{name} 🔴 离开了语音频道: {channel_name}"
+            msg_content = f"[Discord] {name} 🔴 离开了语音频道: {channel_name}"
             logger.info(f"[Discord Sync] {msg_content} (延迟确认)")
             await try_active_push(msg_content)
 
