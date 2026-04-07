@@ -19,6 +19,7 @@ DISCORD_TOKEN = getattr(config, "discord_token", None)
 DISCORD_PROXY = getattr(config, "discord_proxy", "")
 DISCORD_GUILD_ID = int(getattr(config, "discord_guild_id", 0))
 QQ_GROUP_ID = getattr(config, "qq_group_id", 0)
+ENABLE_DISCORD_SYNC = getattr(config, "enable_discord_sync", True)
 
 LEAVE_DELAY_SECONDS = 60
 
@@ -199,6 +200,10 @@ async def handle_status(matcher: Matcher):
 # --- 启动 Hook ---
 @driver.on_startup
 async def start_discord():
+    if not ENABLE_DISCORD_SYNC:
+        logger.info("Discord sync is disabled.")
+        return
+
     if DISCORD_TOKEN:
         asyncio.create_task(discord_client.start(DISCORD_TOKEN))
     else:

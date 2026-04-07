@@ -1,9 +1,9 @@
-import re
-from typing import List, Set
 from nonebot import get_driver, logger, get_bot
 from nonebot.plugin import PluginMetadata
 from nonebot_plugin_apscheduler import scheduler
-from py_aio_mcrcon import MCRconClient
+from typing import Set, Optional
+import aiomcrcon   # py-aio-mcrcon 包的 import 名称即为 aiomcrcon
+import re
 
 __plugin_meta__ = PluginMetadata(
     name="Minecraft 玩家状态同步",
@@ -18,50 +18,73 @@ RCON_PORT = int(getattr(config, "mc_rcon_port", 25575))
 RCON_PWD = getattr(config, "mc_rcon_pwd", "your_secure_password")
 SYNC_INTERVAL = int(getattr(config, "mc_sync_interval", 30))
 QQ_GROUP_ID = getattr(config, "qq_group_id", None)
+ENABLE_MC_SYNC = getattr(config, "enable_mc_sync", True)
 
-# 玩家列表缓存
+LIST_RE = re.compile(r"online:\s*(.*)", re.IGNORECASE)
+
 last_players: Set[str] = set()
 
-# 正则表达式用于解析 list 命令结果
-# 典型输出: "There are 2 of a max 20 players online: Player1, Player2"
-# 或者 "There are 0 of a max 20 players online:"
-LIST_RE = re.compile(r"online: (.*)")
+_rcon_client: Optional[aiomcrcon.Client] = None
+
+async def get_rcon_client() -> aiomcrcon.Client:
+    """获取或初始化持久化 RCON 客户端"""
+    global _rcon_client
+    if _rcon_client is None:
+        _rcon_client = aiomcrcon.Client(RCON_HOST, RCON_PWD, port=RCON_PORT)
+
+    if not hasattr(_rcon_client, "_reader") or _rcon_client._reader is None:
+        try:
+            await _rcon_client.connect()
+            logger.info("[MC] RCON 持久化连接已建立 (aiomcrcon)")
+        except Exception as e:
+            logger.error(f"[MC] RCON 连接失败: {e}")
+            raise e
+    return _rcon_client
 
 async def get_online_players() -> Set[str]:
     """通过 RCON 获取在线玩家列表"""
+    global _rcon_client
     try:
-        async with MCRconClient(RCON_HOST, RCON_PORT, RCON_PWD) as client:
-            response = await client.send_command("list")
-            logger.debug(f"MC RCON response: {response}")
-            
-            match = LIST_RE.search(response)
-            if match:
-                players_str = match.group(1).strip()
-                if not players_str:
-                    return set()
-                # 逗号分隔并去除空格
-                return {p.strip() for p in players_str.split(", ")}
+        client = await get_rcon_client()
+        response = await client.command("list")
+        
+        match = LIST_RE.search(response)
+        if match:
+            players_str = match.group(1).strip()
+            if not players_str:
+                return set()
+            players = {p.strip() for p in players_str.split(", ")}
+            return {re.sub(r"§.", "", p) for p in players if p}
+        else:
             return set()
     except Exception as e:
-        logger.error(f"Failed to connect to MC RCON: {e}")
+        logger.error(f"[MC] RCON Error: {e}")
+        if _rcon_client:
+            try:
+                await _rcon_client.close()
+            except:
+                pass
+            _rcon_client = None
         return set()
 
 @scheduler.scheduled_job("interval", seconds=SYNC_INTERVAL, id="mc_player_sync")
 async def sync_mc_players():
+    if not ENABLE_MC_SYNC:
+        return
+    
     global last_players
     
     current_players = await get_online_players()
-    
-    # 如果初次运行且之前没有记录，先同步一次不发消息
-    if not last_players and current_players:
-        last_players = current_players
-        return
+
+    if last_players != current_players:
+        logger.info(f"[MC] State changed: {last_players} -> {current_players}")
 
     # 计算差异
     joined = current_players - last_players
     left = last_players - current_players
     
     if not joined and not left:
+        last_players = current_players # 同步状态
         return
 
     try:
@@ -73,8 +96,10 @@ async def sync_mc_players():
         messages = []
         for player in joined:
             messages.append(f"[MC] {player} 进入了服务器")
+            logger.info(f"[MC] {player} Joined")
         for player in left:
             messages.append(f"[MC] {player} 离开了服务器")
+            logger.info(f"[MC] {player} Left")
 
         if messages:
             msg = "\n".join(messages)
@@ -88,6 +113,10 @@ async def sync_mc_players():
 
 @get_driver().on_startup
 async def init_mc_status():
+    if not ENABLE_MC_SYNC:
+        logger.info("Minecraft sync is disabled.")
+        return
+
     global last_players
     logger.info("Initializing Minecraft player status cache...")
     last_players = await get_online_players()
