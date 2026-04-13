@@ -23,6 +23,7 @@ ENABLE_MC_SYNC = getattr(config, "enable_mc_sync", True)
 LIST_RE = re.compile(r"online:\s*(.*)", re.IGNORECASE)
 
 last_players: Set[str] = set()
+player_net_changes: dict[str, int] = {}
 
 _rcon_client: Optional[aiomcrcon.Client] = None
 
@@ -87,29 +88,50 @@ async def sync_mc_players():
         last_players = current_players # 同步状态
         return
 
+    for player in joined:
+        player_net_changes[player] = player_net_changes.get(player, 0) + 1
+        logger.info(f"[MC] {player} Joined (Queued)")
+    for player in left:
+        player_net_changes[player] = player_net_changes.get(player, 0) - 1
+        logger.info(f"[MC] {player} Left (Queued)")
+
+    last_players = current_players
+
+
+@scheduler.scheduled_job("interval", minutes=5, id="mc_player_msg_queue_sender")
+async def send_mc_message_queue():
+    if not ENABLE_MC_SYNC:
+        return
+
+    messages = []
+    
+    # 清洗逻辑：合并后净变化大于0视为进入，小于0视为离开，等于0则被清洗掉
+    for player, change in list(player_net_changes.items()):
+        if change > 0:
+            messages.append(f"[MC] {player} 进入了服务器")
+        elif change < 0:
+            messages.append(f"[MC] {player} 离开了服务器")
+            
+    # 清空队列
+    player_net_changes.clear()
+            
+    if not messages:
+        return
+        
     try:
         bot = get_bot()
         if not QQ_GROUP_ID:
             logger.warning("QQ_GROUP_ID is not configured, skipping broadcast.")
             return
 
-        messages = []
-        for player in joined:
-            messages.append(f"[MC] {player} 进入了服务器")
-            logger.info(f"[MC] {player} Joined")
-        for player in left:
-            messages.append(f"[MC] {player} 离开了服务器")
-            logger.info(f"[MC] {player} Left")
+        msg = "\n".join(messages)
+        await bot.send_group_msg(group_id=int(QQ_GROUP_ID), message=msg)
+        logger.info(f"Broadcasted queued MC status:\n{msg}")
 
-        if messages:
-            msg = "\n".join(messages)
-            await bot.send_group_msg(group_id=int(QQ_GROUP_ID), message=msg)
-            logger.info(f"Broadcasted MC status: {msg}")
-
+    except ValueError:
+        logger.warning(f"No bot connected, dropping MC status messages:\n{msg}")
     except Exception as e:
-        logger.error(f"Error sending group message: {e}")
-    finally:
-        last_players = current_players
+        logger.error(f"Error sending group message for MC queue: {e}")
 
 @get_driver().on_startup
 async def init_mc_status():
